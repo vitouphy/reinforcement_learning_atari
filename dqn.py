@@ -1,7 +1,7 @@
 import gym
 import collections
 import random
-
+import sys
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -106,6 +106,7 @@ def main():
             q_target.load_state_dict(q.state_dict())
             print("# of episode :{}, avg score : {:.1f}, buffer size : {}, epsilon : {:.1f}%".format(
                                                             n_epi, score/print_interval, memory.size(), epsilon*100))
+            sys.stdout.flush()
 
             save_path = './checkpoints/pacman_ram/{}.pt'.format(n_epi)
             torch.save(q.state_dict(), save_path)
