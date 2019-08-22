@@ -113,17 +113,5 @@ def main():
             score = 0.0
     env.close()
 
-def eval():
-    env = gym.make(ENV)
-    q = Qnet()
-    q.load_state_dict(torch.load('./checkpoints/pacman_ram/9980.pt'))
-    obs = env.reset()
-    for t in range(600):
-        a = q.sample_action(torch.from_numpy(obs).float(), 0.3)
-        obs, r, done, info = env.step(a)
-        env.render()
-    env.close()
-
 if __name__ == '__main__':
-    # main()
-    eval()
+    main()
