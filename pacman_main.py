@@ -14,7 +14,7 @@ NUM_EPISODES = 1000
 epsilon = 0.5
 learning_rate = 1e-3
 batch_size = 128
-print_every_ep = 20
+print_every_ep = 5
 
 class ReplayBuffer():
     def __init__(self):
@@ -110,8 +110,8 @@ def main():
             score += reward
             if done: break
 
-        if memory.size() > 2000:
-            train(q_policy, q_target, optimizer, memory)
+            if memory.size() > 30000:
+                train(q_policy, q_target, optimizer, memory)
 
         # Save the network and so on
         if episode % print_every_ep == 0:
