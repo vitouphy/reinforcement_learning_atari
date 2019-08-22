@@ -122,7 +122,7 @@ def main():
             start_time = time.time()
             print ("epsiode: {}, avg_score: {}, duration: {}".format(episode, avg_score, duration))
 
-            save_path = './checkpoints/pacman_ram_custom/{}.pt'.format(n_epi)
+            save_path = './checkpoints/pacman_ram_custom/{}.pt'.format(episode)
             torch.save(q_policy.state_dict(), save_path)
             sys.stdout.flush()
 
