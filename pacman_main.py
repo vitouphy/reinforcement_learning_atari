@@ -78,7 +78,7 @@ class Q_Network(nn.Module):
 def train(q_policy, q_target, optimizer, memory):
 
     loss = 0
-    s, a, r, s_prime, done = memory.sample(batch_size)
+    s, a, r, s_prime, done = memory.sample(batch_size, use_cuda)
 
     actions = q_policy(s)
     policy_values = torch.gather(actions, 1, a.view(-1,1))
