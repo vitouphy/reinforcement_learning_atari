@@ -25,7 +25,7 @@ class ReplayBuffer():
     def put(self, transition):
         self.buffer.append(transition)
 
-    def sample(self, n):
+    def sample(self, n, use_cuda=False):
         mini_batch = random.sample(self.buffer, n)
         s_lst, a_lst, r_lst, s_prime_lst, done_mask_lst = [], [], [], [], []
 
@@ -37,9 +37,21 @@ class ReplayBuffer():
             s_prime_lst.append(s_prime)
             done_mask_lst.append([done_mask])
 
-        return torch.tensor(s_lst, dtype=torch.float), torch.tensor(a_lst), \
-               torch.tensor(r_lst), torch.tensor(s_prime_lst, dtype=torch.float), \
-               torch.tensor(done_mask_lst)
+        s_list = torch.tensor(s_lst, dtype=torch.float)
+        a_list = torch.tensor(a_lst)
+        r_list = torch.tensor(r_lst)
+        s_prime_list = torch.tensor(s_prime_lst, dtype=torch.float)
+        done_mask_list= torch.tensor(done_mask_lst)
+
+        if use_cuda:
+            s_list = s_list.cuda()
+            a_list = a_list.cuda()
+            r_list = r_list.cuda()
+            s_prime_list = s_prime_list.cuda()
+            done_mask_list = done_mask_list.cuda()
+
+        return s_list, a_list, r_list, s_prime_list, done_mask_list
+
 
     def size(self):
         return len(self.buffer)
@@ -113,7 +125,10 @@ def main():
         observation = env.reset()
 
         while not done:
-            action = q_policy.sampling_action(torch.Tensor(observation), epsilon)
+            tmp_obs = torch.Tensor(observation)
+            if use_cuda:
+                tmp_obs = tmp_obs.cuda()
+            action = q_policy.sampling_action(tmp_obs, epsilon)
             observation_new, reward, done, info = env.step(action)
             done = 1.0 if done else 0.0
             memory.put( (observation, action, reward, observation_new, done) )
