@@ -15,7 +15,7 @@ from atari_wrappers import make_atari, wrap_deepmind
 buffer_limit = 50000
 NUM_EPISODES = 1000
 epsilon = 0.5
-learning_rate = 1e-3
+learning_rate = 1e-4
 batch_size = 64
 GAMMA = 0.99
 use_cuda = False
@@ -143,6 +143,8 @@ def main():
             tmp_obs = torch.Tensor(observation).unsqueeze(0).permute(0, 3, 1, 2)
             if use_cuda:
                 tmp_obs = tmp_obs.cuda()
+
+            epsilon = max(0.05, 0.5 - 0.01*(episode/200))
             action = q_policy.sampling_action(tmp_obs, epsilon)
 
             observation_new, reward, done, info = env.step(action)
