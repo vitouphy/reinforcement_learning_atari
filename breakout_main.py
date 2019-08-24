@@ -3,10 +3,12 @@ import sys
 import time
 import random
 import collections
+import cv2
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from atari_wrappers import make_atari, wrap_deepmind
 
 
 buffer_limit = 50000
@@ -91,7 +93,7 @@ def train(q_policy, q_target, optimizer, memory):
     optimizer.step()
 
 def eval():
-    env = gym.make('MsPacman-ram-v0')
+    env = gym.make('Breakout-v0')
     q_policy = Q_Network()
     q_policy.load_state_dict(torch.load('./checkpoints/pacman_ram_custom/965.pt'))
     observation = env.reset()
@@ -103,7 +105,7 @@ def eval():
     env.close()
 
 def main():
-    env = gym.make('MsPacman-ram-v0')
+    env = gym.make('Breakout-v0')
     memory = ReplayBuffer()
     q_policy = Q_Network()
     q_target = Q_Network()
@@ -113,6 +115,7 @@ def main():
         q_target = q_target.cuda()
 
     q_target.load_state_dict(q_policy.state_dict())
+    q_target.eval()
     optimizer = torch.optim.Adam(q_policy.parameters(), lr=learning_rate)
 
     score = 0

@@ -3,20 +3,25 @@ import sys
 import time
 import random
 import collections
+import cv2
+import numpy as np
+import tensorflow as tf
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-
+from atari_wrappers import make_atari, wrap_deepmind
 
 buffer_limit = 50000
 NUM_EPISODES = 1000
 epsilon = 0.5
 learning_rate = 1e-3
 batch_size = 64
-print_every_ep = 5
 GAMMA = 0.99
 use_cuda = False
+action_space = 4
+print_every_ep = 5
+save_every_ep = 100
 
 class ReplayBuffer():
     def __init__(self):
@@ -43,6 +48,10 @@ class ReplayBuffer():
         s_prime_list = torch.tensor(s_prime_lst, dtype=torch.float)
         done_mask_list= torch.tensor(done_mask_lst)
 
+        # Change order for Conv2D from N x W x H x C -> N x C x W x H
+        s_list = s_list.permute(0, 3, 1, 2)
+        s_prime_list = s_prime_list.permute(0, 3, 1, 2)
+
         if use_cuda:
             s_list = s_list.cuda()
             a_list = a_list.cuda()
@@ -52,25 +61,30 @@ class ReplayBuffer():
 
         return s_list, a_list, r_list, s_prime_list, done_mask_list
 
-
     def size(self):
         return len(self.buffer)
 
 class Q_Network(nn.Module):
     def __init__(self):
         super(Q_Network, self).__init__()
-        self.fc1 = nn.Linear(128, 256) # states into action pair
-        self.fc2 = nn.Linear(256, 9)
+        self.conv1 = nn.Conv2d(4, 16, kernel_size=8, stride=4)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=4, stride=2)
+        self.fc1 = nn.Linear(2592, 256) # states into action pair
+        self.fc2 = nn.Linear(256, 128)
+        self.fc3 = nn.Linear(128, action_space)
 
     def forward(self, x):
-        ''' x is the state of the game '''
-        out = F.relu(self.fc1(x))
-        return self.fc2(out)
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.conv2(x))
+        x = x.view(-1, 2592)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        return self.fc3(x)
 
     def sampling_action(self, x, epsilon):
         actions = self.forward(x)
         if random.random() < epsilon:
-            action = random.randint(0, 8) # random
+            action = random.randint(0, action_space-1) # random
         else:
             action = torch.argmax(actions) # choose maximum
         return action
@@ -90,20 +104,19 @@ def train(q_policy, q_target, optimizer, memory):
     loss.backward()
     optimizer.step()
 
-def eval():
-    env = gym.make('MsPacman-ram-v0')
-    q_policy = Q_Network()
-    q_policy.load_state_dict(torch.load('./checkpoints/pacman_ram_custom/965.pt'))
-    observation = env.reset()
-    done = False
-    while not done:
-        action = q_policy.sampling_action(torch.Tensor(observation), 0.2)
-        observation, reward, done, info = env.step(action)
-        env.render()
-    env.close()
-
 def main():
-    env = gym.make('MsPacman-ram-v0')
+
+    # Initialization
+    logs = "./checkpoints/breakout/logs"
+    summary_writer = tf.summary.FileWriter(logs)
+
+    # Setup environment
+    env = make_atari('Breakout-v0')
+    env = wrap_deepmind(env, frame_stack=True)
+    action_space = env.action_space.n
+    print ("Action Space: ", env.action_space.n)
+
+    # Preparation for the network
     memory = ReplayBuffer()
     q_policy = Q_Network()
     q_target = Q_Network()
@@ -113,19 +126,25 @@ def main():
         q_target = q_target.cuda()
 
     q_target.load_state_dict(q_policy.state_dict())
+    q_target.eval()
     optimizer = torch.optim.Adam(q_policy.parameters(), lr=learning_rate)
+
 
     score = 0
     start_time = time.time()
+
+    # Play the episodes
     for episode in range(NUM_EPISODES):
         done = False
         observation = env.reset()
 
         while not done:
-            tmp_obs = torch.Tensor(observation)
+            # Get an action
+            tmp_obs = torch.Tensor(observation).unsqueeze(0).permute(0, 3, 1, 2)
             if use_cuda:
                 tmp_obs = tmp_obs.cuda()
             action = q_policy.sampling_action(tmp_obs, epsilon)
+
             observation_new, reward, done, info = env.step(action)
             done = 1.0 if done else 0.0
             memory.put( (observation, action, reward, observation_new, done) )
@@ -135,24 +154,44 @@ def main():
             score += reward
             if done: break
 
-        if memory.size() > 2000:
+        # Train from experience replay
+        if memory.size() > 100:
             train(q_policy, q_target, optimizer, memory)
 
-        # Save the network and so on
+        # Save the network
         if episode % print_every_ep == 0:
+            # Save the network
             q_target.load_state_dict(q_policy.state_dict())
+
+            # Compute score and time
             avg_score = score / print_every_ep
-            score = 0
             duration = time.time() - start_time
             start_time = time.time()
             print ("epsiode: {}, avg_score: {}, duration: {}".format(episode, avg_score, duration))
 
-            save_path = './checkpoints/pacman_ram_custom/{}.pt'.format(episode)
-            torch.save(q_policy.state_dict(), save_path)
+            # Save for tensorboard
+            tf_score = tf.Summary()
+            tag_name = 'score'
+            tf_score.value.add(tag='score', simple_value=avg_score)
+            summary_writer.add_summary(tf_score, episode)
+
+            score = 0
             sys.stdout.flush()
+
+        if episode % save_every_ep == 0:
+            save_path = './checkpoints/breakout/{}.pt'.format(episode)
+            torch.save(q_policy.state_dict(), save_path)
+
+
+        # print (obs[:,:,0] == obs[:,:,1])
+        # print (obs[:,:,0])
+        # cv2.imshow("Frame-0", obs[:,:,0])
+        # cv2.imshow("Frame-1", obs[:,:,1])
+        # cv2.imshow("Frame-2", obs[:,:,2])
+        # cv2.imshow("Frame-3", obs[:,:,3])
+        # cv2.waitKey(0)
 
     env.close()
 
 if __name__ == "__main__":
     main()
-    # eval()
