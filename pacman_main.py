@@ -13,8 +13,10 @@ buffer_limit = 50000
 NUM_EPISODES = 1000
 epsilon = 0.5
 learning_rate = 1e-3
-batch_size = 128
+batch_size = 64
 print_every_ep = 5
+GAMMA = 0.99
+use_cuda = False
 
 class ReplayBuffer():
     def __init__(self):
@@ -63,33 +65,44 @@ class Q_Network(nn.Module):
 
 def train(q_policy, q_target, optimizer, memory):
 
-    s_list, a_list, r_list, s_prime_list, done_list = memory.sample(batch_size)
     loss = 0
-    for i in range(batch_size):
-        s = s_list[i]
-        a = a_list[i]
-        r = r_list[i]
-        s_prime = s_prime_list[i]
-        done = done_list[i]
+    s, a, r, s_prime, done = memory.sample(batch_size)
 
-        policy_value = q_policy(s)[a]
-        target_value = r
-        if not done:
-            target_actions = q_target(s_prime)
-            target_value += torch.max(target_actions)
-        loss += (target_value - policy_value) ** 2
-
-    loss /= batch_size
+    actions = q_policy(s)
+    policy_values = torch.gather(actions, 1, a.view(-1,1))
+    target_actions = q_target(s_prime)
+    target_values = r + (GAMMA * torch.max(target_actions, 1).values * done)
+    loss += ((target_values - policy_values) ** 2).mean()
 
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
+
+
+
+def eval():
+    env = gym.make('MsPacman-ram-v0')
+    q_policy = Q_Network()
+    q_policy.load_state_dict(torch.load('./checkpoints/pacman_ram_custom/965.pt'))
+    observation = env.reset()
+    done = False
+    while not done:
+        action = q_policy.sampling_action(torch.Tensor(observation), 0.2)
+        observation, reward, done, info = env.step(action)
+        env.render()
+    env.close()
+
 
 def main():
     env = gym.make('MsPacman-ram-v0')
     memory = ReplayBuffer()
     q_policy = Q_Network()
     q_target = Q_Network()
+
+    if use_cuda:
+        q_policy = q_policy.cuda()
+        q_target = q_target.cuda()
+
     q_target.load_state_dict(q_policy.state_dict())
     optimizer = torch.optim.Adam(q_policy.parameters(), lr=learning_rate)
 
@@ -102,7 +115,7 @@ def main():
         while not done:
             action = q_policy.sampling_action(torch.Tensor(observation), epsilon)
             observation_new, reward, done, info = env.step(action)
-            done = 1 if done else 0
+            done = 1.0 if done else 0.0
             memory.put( (observation, action, reward, observation_new, done) )
             observation = observation_new
 
@@ -110,8 +123,8 @@ def main():
             score += reward
             if done: break
 
-            if memory.size() > 30000:
-                train(q_policy, q_target, optimizer, memory)
+        if memory.size() > 2000:
+            train(q_policy, q_target, optimizer, memory)
 
         # Save the network and so on
         if episode % print_every_ep == 0:
@@ -130,3 +143,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # eval()
