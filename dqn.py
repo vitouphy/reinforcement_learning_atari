@@ -1,18 +1,28 @@
 import gym
-import collections
-import random
 import sys
+import time
+import random
+import collections
+import cv2
+import numpy as np
+import tensorflow as tf
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from atari_wrappers import make_atari, wrap_deepmind
 
-#Hyperparameters
-learning_rate = 0.0005
-gamma         = 0.98
-buffer_limit  = 50000
-batch_size    = 32
-ENV = 'MsPacman-ram-v0'
+ENV = "Breakout-v0"
+buffer_limit = 50000
+NUM_EPISODES = 100000000
+learning_rate = 1e-4
+batch_size = 64
+GAMMA = 0.99
+use_cuda = False
+action_space = 4
+print_every_ep = 5
+save_every_ep = 100
+save_every_step = 100
 
 class ReplayBuffer():
     def __init__(self):
@@ -21,7 +31,7 @@ class ReplayBuffer():
     def put(self, transition):
         self.buffer.append(transition)
 
-    def sample(self, n):
+    def sample(self, n, use_cuda=False):
         mini_batch = random.sample(self.buffer, n)
         s_lst, a_lst, r_lst, s_prime_lst, done_mask_lst = [], [], [], [], []
 
@@ -33,97 +43,199 @@ class ReplayBuffer():
             s_prime_lst.append(s_prime)
             done_mask_lst.append([done_mask])
 
-        return torch.tensor(s_lst, dtype=torch.float), torch.tensor(a_lst), \
-               torch.tensor(r_lst), torch.tensor(s_prime_lst, dtype=torch.float), \
-               torch.tensor(done_mask_lst)
+        s_list = torch.tensor(s_lst, dtype=torch.float)
+        a_list = torch.tensor(a_lst)
+        r_list = torch.tensor(r_lst)
+        s_prime_list = torch.tensor(s_prime_lst, dtype=torch.float)
+        done_mask_list= torch.tensor(done_mask_lst)
+
+        # Change order for Conv2D from N x W x H x C -> N x C x W x H
+        s_list = s_list.permute(0, 3, 1, 2)
+        s_prime_list = s_prime_list.permute(0, 3, 1, 2)
+
+        if use_cuda:
+            s_list = s_list.cuda()
+            a_list = a_list.cuda()
+            r_list = r_list.cuda()
+            s_prime_list = s_prime_list.cuda()
+            done_mask_list = done_mask_list.cuda()
+
+        return s_list, a_list, r_list, s_prime_list, done_mask_list
 
     def size(self):
         return len(self.buffer)
 
-class Qnet(nn.Module):
+class Q_Network(nn.Module):
     def __init__(self):
-        super(Qnet, self).__init__()
-        self.fc1 = nn.Linear(128, 256)
-        self.fc2 = nn.Linear(256, 9)
+        super(Q_Network, self).__init__()
+        self.conv1 = nn.Conv2d(4, 16, kernel_size=8, stride=4)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=4, stride=2)
+        self.fc1 = nn.Linear(2592, 256) # states into action pair
+        self.fc2 = nn.Linear(256, 128)
+        self.fc3 = nn.Linear(128, action_space)
 
     def forward(self, x):
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.conv2(x))
+        x = x.view(-1, 2592)
         x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
+        x = F.relu(self.fc2(x))
+        return self.fc3(x)
 
-    def sample_action(self, obs, epsilon):
-        out = self.forward(obs)
-        coin = random.random()
-        if coin < epsilon:
-            return random.randint(0,1)
-        else :
-            return out.argmax().item()
+    def sampling_action(self, x, epsilon):
+        actions = self.forward(x)
+        if random.random() < epsilon:
+            action = random.randint(0, action_space-1) # random
+        else:
+            action = torch.argmax(actions) # choose maximum
+        return action
 
-def train(q, q_target, memory, optimizer):
-    for i in range(10):
-        s,a,r,s_prime,done_mask = memory.sample(batch_size)
+def train(q_policy, q_target, optimizer, memory):
 
-        q_out = q(s)
-        q_a = q_out.gather(1,a)
-        max_q_prime = q_target(s_prime).max(1)[0].unsqueeze(1)
-        target = r + gamma * max_q_prime * done_mask
-        loss = F.smooth_l1_loss(q_a, target)
+    loss = 0
+    s, a, r, s_prime, done = memory.sample(batch_size, use_cuda)
 
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+    actions = q_policy(s)
+    policy_values = torch.gather(actions, 1, a.view(-1,1))
+    target_actions = q_target(s_prime)
+    target_values = r + (GAMMA * torch.max(target_actions, 1).values * done)
+    loss += ((target_values - policy_values) ** 2).mean()
+
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+
+    return loss.item()
+
+def eval(weight_file):
+    q_policy = Q_Network()
+    q_policy.load_state_dict(torch.load(weight_file))
+    q_policy.eval()
+
+    env = make_atari(ENV)
+    env = wrap_deepmind(env, frame_stack=True)
+
+    observation = env.reset()
+    done = False
+    while not done:
+        tmp_obs = torch.Tensor(observation).unsqueeze(0).permute(0, 3, 1, 2)
+        action = q_policy.sampling_action(tmp_obs, 0.1)
+        observation_new, reward, done, info = env.step(action)
+        time.sleep(1)
+        env.render()
+
+    env.close()
+
+
 
 def main():
-    env = gym.make(ENV)
-    q = Qnet()
-    q_target = Qnet()
-    q_target.load_state_dict(q.state_dict())
+
+    # Initialization
+    logs = "./checkpoints/{}/logs".format(ENV)
+    summary_writer = tf.summary.FileWriter(logs)
+
+    # Setup environment
+    env = make_atari(ENV)
+    env = wrap_deepmind(env, frame_stack=True)
+    action_space = env.action_space.n
+    print ("Action Space: ", env.action_space.n)
+
+    # Preparation for the network
     memory = ReplayBuffer()
+    q_policy = Q_Network()
+    q_target = Q_Network()
 
-    print_interval = 20
-    score = 0.0
-    optimizer = optim.Adam(q.parameters(), lr=learning_rate)
+    if use_cuda:
+        q_policy = q_policy.cuda()
+        q_target = q_target.cuda()
 
-    for n_epi in range(10000):
-        epsilon = max(0.01, 0.08 - 0.01*(n_epi/200)) #Linear annealing from 8% to 1%
-        s = env.reset()
+    q_target.load_state_dict(q_policy.state_dict())
+    q_target.eval()
+    optimizer = torch.optim.Adam(q_policy.parameters(), lr=learning_rate)
 
-        for t in range(600):
-            a = q.sample_action(torch.from_numpy(s).float(), epsilon)
-            s_prime, r, done, info = env.step(a)
-            done_mask = 0.0 if done else 1.0
-            memory.put((s,a,r/100.0,s_prime, done_mask))
-            s = s_prime
 
-            score += r
-            if done:
-                break
+    score = 0
+    loss = 0
+    step = 0
+    start_time = time.time()
 
-        if memory.size()>2000:
-            train(q, q_target, memory, optimizer)
+    # Play the episodes
+    for episode in range(NUM_EPISODES):
+        done = False
+        observation = env.reset()
 
-        if n_epi%print_interval==0 and n_epi!=0:
-            q_target.load_state_dict(q.state_dict())
-            print("# of episode :{}, avg score : {:.1f}, buffer size : {}, epsilon : {:.1f}%".format(
-                                                            n_epi, score/print_interval, memory.size(), epsilon*100))
+        while not done:
+            # Get an action
+            tmp_obs = torch.Tensor(observation).unsqueeze(0).permute(0, 3, 1, 2)
+            if use_cuda:
+                tmp_obs = tmp_obs.cuda()
+
+            epsilon = max(0.05, 0.3 - 0.01*(episode/200))
+            action = q_policy.sampling_action(tmp_obs, epsilon)
+
+            observation_new, reward, done, info = env.step(action)
+            done = 1.0 if done else 0.0
+            memory.put( (observation, action, reward, observation_new, done) )
+            observation = observation_new
+
+            # train the network
+            score += reward
+            if done: break
+
+            # Train from experience replay
+            if memory.size() > 100:
+                step += 1
+                loss += train(q_policy, q_target, optimizer, memory)
+
+                if (step % save_every_step == 0):
+                    print ("step: {} | avg_loss: {}".format(step, loss / save_every_step))
+
+                    # Save for tensorboard
+                    tf_loss = tf.Summary()
+                    tag_name = 'loss'
+                    tf_loss.value.add(tag='loss', simple_value=loss / save_every_step)
+                    summary_writer.add_summary(tf_loss, step)
+                    loss = 0
+
+
+        # Save the network
+        if episode % print_every_ep == 0:
+            # Save the network
+            q_target.load_state_dict(q_policy.state_dict())
+
+            # Compute score and time
+            avg_score = score / print_every_ep
+            duration = time.time() - start_time
+            start_time = time.time()
+            print ("epsiode: {} | avg_score: {} | duration: {}".format(episode, avg_score, duration))
+
+            # Save for tensorboard
+            tf_score = tf.Summary()
+            tag_name = 'score'
+            tf_score.value.add(tag='score', simple_value=avg_score)
+            summary_writer.add_summary(tf_score, episode)
+
+            score = 0
             sys.stdout.flush()
 
-            save_path = './checkpoints/pacman_ram/{}.pt'.format(n_epi)
-            torch.save(q.state_dict(), save_path)
-            score = 0.0
+        if episode % save_every_ep == 0:
+            save_path = './checkpoints/{}/{}.pt'.format(ENV, episode)
+            torch.save(q_policy.state_dict(), save_path)
+
+
+        # print (obs[:,:,0] == obs[:,:,1])
+        # print (obs[:,:,0])
+        # cv2.imshow("Frame-0", obs[:,:,0])
+        # cv2.imshow("Frame-1", obs[:,:,1])
+        # cv2.imshow("Frame-2", obs[:,:,2])
+        # cv2.imshow("Frame-3", obs[:,:,3])
+        # cv2.waitKey(0)
+
     env.close()
 
-def eval():
-    env = gym.make(ENV)
-    q = Qnet()
-    q.load_state_dict(torch.load('./checkpoints/pacman_ram/9980.pt'))
-    obs = env.reset()
-    for t in range(600):
-        a = q.sample_action(torch.from_numpy(obs).float(), 0.3)
-        obs, r, done, info = env.step(a)
-        env.render()
-    env.close()
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     # main()
-    eval()
+
+    # Evaluation
+    weight = "./checkpoints/breakout/200.pt"
+    eval(weight)
