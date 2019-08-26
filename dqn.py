@@ -23,6 +23,8 @@ action_space = 4
 print_every_ep = 5
 save_every_ep = 100
 save_every_step = 100
+max_epsilon = 0.3
+min_epsilon = 0.05
 
 class ReplayBuffer():
     def __init__(self):
@@ -109,7 +111,7 @@ def train(q_policy, q_target, optimizer, memory):
 
 def eval(weight_file):
     q_policy = Q_Network()
-    q_policy.load_state_dict(torch.load(weight_file))
+    q_policy.load_state_dict(torch.load(weight_file, map_location='cpu'))
     q_policy.eval()
 
     env = make_atari(ENV)
@@ -120,6 +122,7 @@ def eval(weight_file):
     while not done:
         tmp_obs = torch.Tensor(observation).unsqueeze(0).permute(0, 3, 1, 2)
         action = q_policy.sampling_action(tmp_obs, 0.1)
+        print(action)
         observation_new, reward, done, info = env.step(action)
         time.sleep(1)
         env.render()
@@ -128,7 +131,7 @@ def eval(weight_file):
 
 
 
-def main():
+def main(weight=None):
 
     # Initialization
     logs = "./checkpoints/{}/logs".format(ENV)
@@ -144,6 +147,10 @@ def main():
     memory = ReplayBuffer()
     q_policy = Q_Network()
     q_target = Q_Network()
+
+    # Resume the Training
+    if weight is not None:
+        q_policy.load_state_dict(torch.load(weight, map_location='cpu'))
 
     if use_cuda:
         q_policy = q_policy.cuda()
@@ -170,7 +177,7 @@ def main():
             if use_cuda:
                 tmp_obs = tmp_obs.cuda()
 
-            epsilon = max(0.05, 0.3 - 0.01*(episode/200))
+            epsilon = max(min_epsilon, max_epsilon - 0.01*(episode/200))
             action = q_policy.sampling_action(tmp_obs, epsilon)
 
             observation_new, reward, done, info = env.step(action)
@@ -234,8 +241,8 @@ def main():
     env.close()
 
 if __name__ == "__main__":
-    # main()
+    main(weight="./checkpoints/breakout/18300.pt")
 
     # Evaluation
-    weight = "./checkpoints/breakout/200.pt"
-    eval(weight)
+    # weight = "./checkpoints/breakout/9800.pt"
+    # eval(weight)
