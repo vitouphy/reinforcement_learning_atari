@@ -73,16 +73,14 @@ class Q_Network(nn.Module):
         self.conv1 = nn.Conv2d(4, 16, kernel_size=8, stride=4)
         self.conv2 = nn.Conv2d(16, 32, kernel_size=4, stride=2)
         self.fc1 = nn.Linear(2592, 256) # states into action pair
-        self.fc2 = nn.Linear(256, 128)
-        self.fc3 = nn.Linear(128, action_space)
+        self.fc2 = nn.Linear(256, action_space)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = x.view(-1, 2592)
         x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        return self.fc3(x)
+        return self.fc2(x)
 
     def sampling_action(self, x, epsilon):
         actions = self.forward(x)
