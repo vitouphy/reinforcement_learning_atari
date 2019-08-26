@@ -15,7 +15,7 @@ from atari_wrappers import make_atari, wrap_deepmind
 ENV = "Breakout-v0"
 buffer_limit = 50000
 NUM_EPISODES = 100000000
-learning_rate = 1e-4
+learning_rate = 1e-3
 batch_size = 64
 GAMMA = 0.99
 use_cuda = False
@@ -24,7 +24,7 @@ print_every_ep = 5
 save_every_ep = 100
 save_every_step = 100
 max_epsilon = 0.3
-min_epsilon = 0.05
+min_epsilon = 0.02
 
 class ReplayBuffer():
     def __init__(self):
@@ -139,7 +139,7 @@ def main(weight=None):
 
     # Setup environment
     env = make_atari(ENV)
-    env = wrap_deepmind(env, frame_stack=True)
+    env = wrap_deepmind(env, episode_life=False, frame_stack=True)
     action_space = env.action_space.n
     print ("Action Space: ", env.action_space.n)
 
@@ -181,16 +181,17 @@ def main(weight=None):
             action = q_policy.sampling_action(tmp_obs, epsilon)
 
             observation_new, reward, done, info = env.step(action)
-            done = 1.0 if done else 0.0
-            memory.put( (observation, action, reward, observation_new, done) )
+            done_flag = 0.0 if done else 1.0
+            memory.put( (observation, action, reward, observation_new, done_flag) )
             observation = observation_new
 
             # train the network
             score += reward
             if done: break
 
-            # Train from experience replay
-            if memory.size() > 100:
+        # Train from experience replay
+        if memory.size() > 3000:
+            for _ in range (32):
                 step += 1
                 loss += train(q_policy, q_target, optimizer, memory)
 
