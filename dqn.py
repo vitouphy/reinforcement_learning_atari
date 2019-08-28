@@ -100,8 +100,6 @@ def train(q_policy, q_target, optimizer, memory):
     policy_values = torch.gather(actions, 1, a.view(-1,1))
     target_actions = q_target(s_prime)
     target_values = r + (GAMMA * torch.max(target_actions, 1).values * done)
-    print ("hiii")
-    print (torch.max(target_actions, 1).values)
     loss += ((target_values - policy_values) ** 2).mean()
 
     optimizer.zero_grad()
