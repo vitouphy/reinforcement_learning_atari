@@ -13,6 +13,7 @@ import torch.optim as optim
 from atari_wrappers import make_atari, wrap_deepmind
 
 ENV = "Breakout-v0"
+experiment = "Breakout-v0_2"
 buffer_limit = 50000
 NUM_EPISODES = 100000000
 learning_rate = 1e-3
@@ -99,6 +100,8 @@ def train(q_policy, q_target, optimizer, memory):
     policy_values = torch.gather(actions, 1, a.view(-1,1))
     target_actions = q_target(s_prime)
     target_values = r + (GAMMA * torch.max(target_actions, 1).values * done)
+    print ("hiii")
+    print (torch.max(target_actions, 1).values)
     loss += ((target_values - policy_values) ** 2).mean()
 
     optimizer.zero_grad()
@@ -132,7 +135,7 @@ def eval(weight_file):
 def main(weight=None):
 
     # Initialization
-    logs = "./checkpoints/{}/logs".format(ENV)
+    logs = "./checkpoints/{}/logs".format(experiment)
     summary_writer = tf.summary.FileWriter(logs)
 
     # Setup environment
@@ -188,7 +191,7 @@ def main(weight=None):
             if done: break
 
         # Train from experience replay
-        if memory.size() > 3000:
+        if memory.size() > 100:
             for _ in range (32):
                 step += 1
                 loss += train(q_policy, q_target, optimizer, memory)
@@ -225,7 +228,7 @@ def main(weight=None):
             sys.stdout.flush()
 
         if episode % save_every_ep == 0:
-            save_path = './checkpoints/{}/{}.pt'.format(ENV, episode)
+            save_path = './checkpoints/{}/{}.pt'.format(experiment, episode)
             torch.save(q_policy.state_dict(), save_path)
 
 
@@ -240,7 +243,8 @@ def main(weight=None):
     env.close()
 
 if __name__ == "__main__":
-    main(weight="./checkpoints/breakout/18300.pt")
+    main()
+    # main(weight="./checkpoints/breakout/18300.pt")
 
     # Evaluation
     # weight = "./checkpoints/breakout/9800.pt"
