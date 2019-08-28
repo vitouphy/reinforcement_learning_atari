@@ -16,7 +16,7 @@ ENV = "Breakout-v0"
 experiment = "Breakout-v0_2"
 buffer_limit = 50000
 NUM_EPISODES = 100000000
-learning_rate = 1e-3
+learning_rate = 1e-2
 batch_size = 64
 GAMMA = 0.99
 use_cuda = False
@@ -24,8 +24,8 @@ action_space = 4
 print_every_ep = 5
 save_every_ep = 100
 save_every_step = 100
-max_epsilon = 0.3
-min_epsilon = 0.02
+max_epsilon = 1
+min_epsilon = 0.05 # decay from 1 to 0.05 in 300,000 steps
 
 class ReplayBuffer():
     def __init__(self):
@@ -178,7 +178,7 @@ def main(weight=None):
             if use_cuda:
                 tmp_obs = tmp_obs.cuda()
 
-            epsilon = max(min_epsilon, max_epsilon - 0.01*(episode/200))
+            epsilon = max(min_epsilon, max_epsilon - 0.01*(step/3000))
             action = q_policy.sampling_action(tmp_obs, epsilon)
 
             observation_new, reward, done, info = env.step(action)
@@ -216,7 +216,7 @@ def main(weight=None):
             avg_score = score / print_every_ep
             duration = time.time() - start_time
             start_time = time.time()
-            print ("epsiode: {} | avg_score: {} | duration: {}".format(episode, avg_score, duration))
+            print ("step: {} | epsiode: {} | avg_score: {} | duration: {}".format(step, episode, avg_score, duration))
 
             # Save for tensorboard
             tf_score = tf.Summary()
