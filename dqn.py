@@ -191,7 +191,7 @@ def main(weight=None):
             if done: break
 
         # Train from experience replay
-        if memory.size() > 100:
+        if memory.size() > 3000:
             for _ in range (32):
                 step += 1
                 loss += train(q_policy, q_target, optimizer, memory)
@@ -222,7 +222,7 @@ def main(weight=None):
             tf_score = tf.Summary()
             tag_name = 'score'
             tf_score.value.add(tag='score', simple_value=avg_score)
-            summary_writer.add_summary(tf_score, episode)
+            summary_writer.add_summary(tf_score, step)
 
             score = 0
             sys.stdout.flush()
