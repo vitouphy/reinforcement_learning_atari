@@ -86,7 +86,7 @@ class Q_Network(nn.Module):
         return self.fc3(x)
 
     def sampling_action(self, x, epsilon):
-        if random.random() > epsilon:
+        if random.random() < epsilon:
             action = random.randint(0, action_space-1) # random
         else:
             actions = self.forward(x)
