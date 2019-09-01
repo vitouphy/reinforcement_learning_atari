@@ -13,19 +13,19 @@ import torch.optim as optim
 from atari_wrappers import make_atari, wrap_deepmind
 
 ENV = "Breakout-v0"
-experiment = "Breakout-v0_2"
-buffer_limit = 50000
+experiment = "Breakout-v0"
+buffer_limit = 500000
 NUM_EPISODES = 100000000
-learning_rate = 1e-2
-batch_size = 64
-GAMMA = 0.99
+learning_rate = 0.005
+batch_size = 32
+GAMMA = 0.95
 use_cuda = False
 action_space = 4
-print_every_ep = 5
+print_every_ep = 10
 save_every_ep = 100
-save_every_step = 100
+save_every_step = 1000
 max_epsilon = 1
-min_epsilon = 0.05 # decay from 1 to 0.05 in 300,000 steps
+min_epsilon = 0.1 # decay from 1 to 0.1 in 1,000,000 steps
 
 class ReplayBuffer():
     def __init__(self):
@@ -84,23 +84,22 @@ class Q_Network(nn.Module):
         return self.fc2(x)
 
     def sampling_action(self, x, epsilon):
-        actions = self.forward(x)
         if random.random() < epsilon:
             action = random.randint(0, action_space-1) # random
         else:
-            action = torch.argmax(actions) # choose maximum
+            actions = self.forward(x)
+            action = torch.argmax(actions).item() # choose maximum
         return action
 
 def train(q_policy, q_target, optimizer, memory):
 
-    loss = 0
     s, a, r, s_prime, done = memory.sample(batch_size, use_cuda)
 
     actions = q_policy(s)
     policy_values = torch.gather(actions, 1, a.view(-1,1))
     target_actions = q_target(s_prime)
-    target_values = r + (GAMMA * torch.max(target_actions, 1).values * done)
-    loss += ((target_values - policy_values) ** 2).mean()
+    target_values = r + (GAMMA * torch.max(target_actions, 1).values.view(-1,1) * done)
+    loss = ((target_values - policy_values) ** 2).mean()
 
     optimizer.zero_grad()
     loss.backward()
@@ -177,7 +176,7 @@ def main(weight=None):
             if use_cuda:
                 tmp_obs = tmp_obs.cuda()
 
-            epsilon = max(min_epsilon, max_epsilon - 0.01*(step/3000))
+            epsilon = max(min_epsilon, max_epsilon - 0.01*(step/10000))
             action = q_policy.sampling_action(tmp_obs, epsilon)
 
             observation_new, reward, done, info = env.step(action)
@@ -189,9 +188,9 @@ def main(weight=None):
             score += reward
             if done: break
 
-        # Train from experience replay
-        if memory.size() > 3000:
-            for _ in range (32):
+            # Train from experience replay
+            if memory.size() > 3000:
+            # for _ in range (32):
                 step += 1
                 loss += train(q_policy, q_target, optimizer, memory)
 
