@@ -131,6 +131,7 @@ def eval(weight_file):
 
 
 def main(weight=None):
+    global action_space
 
     # Initialization
     logs = "./checkpoints/{}/logs".format(experiment)
