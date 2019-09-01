@@ -187,12 +187,6 @@ def main(weight=None):
             action = q_policy.sampling_action(tmp_obs, epsilon)
 
             observation_new, reward, done, info = env.step(action)
-            if done:
-                done_flag = 0.0
-                reward = -50
-            else:
-                done_flag = 1.0
-
             done_flag = 0.0 if done else 1.0
             memory.put( (observation, action, reward, observation_new, done_flag) )
             observation = observation_new
