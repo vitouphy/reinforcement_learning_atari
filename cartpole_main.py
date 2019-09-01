@@ -74,17 +74,19 @@ class Q_Network(nn.Module):
         # self.conv1 = nn.Conv2d(4, 16, kernel_size=8, stride=4)
         # self.conv2 = nn.Conv2d(16, 32, kernel_size=4, stride=2)
         self.fc1 = nn.Linear(4, 8) # states into action pair
-        self.fc2 = nn.Linear(8, action_space)
+        self.fc2 = nn.Linear(8, 8)
+        self.fc3 = nn.Linear(8, action_space)
 
     def forward(self, x):
         # x = F.relu(self.conv1(x))
         # x = F.relu(self.conv2(x))
         # x = x.view(-1, 2592)
         x = F.relu(self.fc1(x))
-        return self.fc2(x)
+        x = F.relu(self.fc2(x))
+        return self.fc3(x)
 
     def sampling_action(self, x, epsilon):
-        if random.random() < epsilon:
+        if random.random() > epsilon:
             action = random.randint(0, action_space-1) # random
         else:
             actions = self.forward(x)
@@ -98,7 +100,8 @@ def train(q_policy, q_target, optimizer, memory):
     policy_values = torch.gather(actions, 1, a.view(-1,1))
     target_actions = q_target(s_prime)
     target_values = r + (GAMMA * torch.max(target_actions, 1).values.view(-1,1) * done)
-    loss = F.smooth_l1_loss(policy_values, target_values)
+    # loss = F.smooth_l1_loss(policy_values, target_values)
+    loss = ((policy_values - target_values) ** 2).mean()
 
     optimizer.zero_grad()
     loss.backward()
@@ -138,8 +141,10 @@ def main(weight=None):
     # Setup environment
     # env = make_atari(ENV)
     env = gym.make(ENV)
-    print (env._max_episode_steps)
+    print ("Max Step: ", env._max_episode_steps)
     # env = wrap_deepmind(env, episode_life=False, frame_stack=True)
+    observation_space = env.observation_space.shape[0]
+    print ("Observation Space: ", observation_space)
     action_space = env.action_space.n
     print ("Action Space: ", env.action_space.n)
 
