@@ -14,11 +14,11 @@ from atari_wrappers import make_atari, wrap_deepmind
 
 ENV = "CartPole-v1"
 experiment = "CartPole-v1"
-buffer_limit = 50000
+buffer_limit = 200000
 NUM_EPISODES = 100000000
-learning_rate = 1e-2
+learning_rate = 1e-3
 batch_size = 64
-GAMMA = 0.99
+GAMMA = 0.999
 use_cuda = False
 action_space = 4
 print_every_ep = 100
