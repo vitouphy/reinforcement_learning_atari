@@ -16,13 +16,13 @@ ENV = "CartPole-v1"
 experiment = "CartPole-v1"
 buffer_limit = 500000
 NUM_EPISODES = 100000000
-learning_rate = 1e-3
+learning_rate = 0.005
 batch_size = 32
 GAMMA = 0.999
 use_cuda = False
 action_space = 4
-print_every_ep = 100
-save_every_ep = 100
+print_every_ep = 20
+save_every_ep = 1000
 save_every_step = 1000
 max_epsilon = 1
 min_epsilon = 0.1 # decay from 1 to 0.05 in 300,000 steps
@@ -73,35 +73,32 @@ class Q_Network(nn.Module):
         super(Q_Network, self).__init__()
         # self.conv1 = nn.Conv2d(4, 16, kernel_size=8, stride=4)
         # self.conv2 = nn.Conv2d(16, 32, kernel_size=4, stride=2)
-        self.fc1 = nn.Linear(4, action_space) # states into action pair
-        # self.fc2 = nn.Linear(8, action_space)
+        self.fc1 = nn.Linear(4, 8) # states into action pair
+        self.fc2 = nn.Linear(8, action_space)
 
     def forward(self, x):
         # x = F.relu(self.conv1(x))
         # x = F.relu(self.conv2(x))
         # x = x.view(-1, 2592)
-        # x = F.relu(self.fc1(x))
-        return self.fc1(x)
+        x = F.relu(self.fc1(x))
+        return self.fc2(x)
 
     def sampling_action(self, x, epsilon):
-        actions = self.forward(x)
         if random.random() < epsilon:
             action = random.randint(0, action_space-1) # random
         else:
+            actions = self.forward(x)
             action = torch.argmax(actions).item() # choose maximum
         return action
 
 def train(q_policy, q_target, optimizer, memory):
 
-    loss = 0
     s, a, r, s_prime, done = memory.sample(batch_size, use_cuda)
-
     actions = q_policy(s)
     policy_values = torch.gather(actions, 1, a.view(-1,1))
     target_actions = q_target(s_prime)
-    target_values = r + (GAMMA * torch.max(target_actions, 1).values * done)
+    target_values = r + (GAMMA * torch.max(target_actions, 1).values.view(-1,1) * done)
     loss = F.smooth_l1_loss(policy_values, target_values)
-    # loss += ((target_values - policy_values) ** 2).mean()
 
     optimizer.zero_grad()
     loss.backward()
