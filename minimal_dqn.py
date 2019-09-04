@@ -13,7 +13,7 @@ import torch.optim as optim
 from atari_wrappers import make_atari, wrap_deepmind
 
 ENV = "CartPole-v1"
-experiment = "CartPole-v1"
+experiment = "CartPole-v1_minimal"
 buffer_limit = 500000
 NUM_EPISODES = 100000000
 learning_rate = 0.005
@@ -67,9 +67,9 @@ class ReplayBuffer():
 class Q_Network(nn.Module):
     def __init__(self):
         super(Q_Network, self).__init__()
-        self.fc1 = nn.Linear(4, 8) # states into action pair
-        self.fc2 = nn.Linear(8, 8)
-        self.fc3 = nn.Linear(8, action_space)
+        self.fc1 = nn.Linear(4, 32) # states into action pair
+        self.fc2 = nn.Linear(32, 32)
+        self.fc3 = nn.Linear(32, action_space)
 
     def forward(self, x):
         x = F.relu(self.fc1(x))
@@ -100,23 +100,28 @@ def train(q_net, optimizer, memory):
     return loss.item()
 
 def eval(weight_file):
+    global action_space
+
+    env = gym.make(ENV)
+    action_space = env.action_space.n
+
     q_policy = Q_Network()
     q_policy.load_state_dict(torch.load(weight_file, map_location='cpu'))
     q_policy.eval()
 
-    env = make_atari(ENV)
-    env = wrap_deepmind(env, frame_stack=True)
 
     observation = env.reset()
     done = False
+    total_reward = 0
     while not done:
-        tmp_obs = torch.Tensor(observation).unsqueeze(0).permute(0, 3, 1, 2)
+        tmp_obs = torch.Tensor(observation)
         action = q_policy.sampling_action(tmp_obs, 0.1)
         print(action)
         observation_new, reward, done, info = env.step(action)
-        time.sleep(1)
+        total_reward += reward
+        time.sleep(0.1)
         env.render()
-
+    print ("Total Reward: ", total_reward)
     env.close()
 
 
@@ -146,7 +151,7 @@ def main(weight=None):
         q_net.load_state_dict(torch.load(weight, map_location='cpu'))
 
     if use_cuda:
-        q_net = q_policy.cuda()
+        q_net = q_net.cuda()
 
     optimizer = torch.optim.Adam(q_net.parameters(), lr=learning_rate)
 
@@ -220,9 +225,10 @@ def main(weight=None):
     env.close()
 
 if __name__ == "__main__":
-    main()
+    # main()
     # main(weight="./checkpoints/breakout/18300.pt")
 
     # Evaluation
-    # weight = "./checkpoints/breakout/9800.pt"
-    # eval(weight)
+    weight = "./checkpoints/{}/24000.pt".format(experiment)
+    print (weight)
+    eval(weight)
