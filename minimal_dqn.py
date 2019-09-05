@@ -81,6 +81,7 @@ class Q_Network(nn.Module):
             action = random.randint(0, action_space-1) # random
         else:
             actions = self.forward(x)
+            print(actions)
             action = torch.argmax(actions).item() # choose maximum
         return action
 
@@ -105,21 +106,20 @@ def eval(weight_file):
     env = gym.make(ENV)
     action_space = env.action_space.n
 
-    q_policy = Q_Network()
-    q_policy.load_state_dict(torch.load(weight_file, map_location='cpu'))
-    q_policy.eval()
-
+    q_net = Q_Network()
+    q_net.load_state_dict(torch.load(weight_file, map_location='cpu'))
+    q_net.eval()
 
     observation = env.reset()
     done = False
     total_reward = 0
     while not done:
         tmp_obs = torch.Tensor(observation)
-        action = q_policy.sampling_action(tmp_obs, 0.1)
-        print(action)
+        action = q_net.sampling_action(tmp_obs, 0)
         observation_new, reward, done, info = env.step(action)
+        observation = observation_new
         total_reward += reward
-        time.sleep(0.1)
+        # time.sleep(0.1)
         env.render()
     print ("Total Reward: ", total_reward)
     env.close()
@@ -229,6 +229,6 @@ if __name__ == "__main__":
     # main(weight="./checkpoints/breakout/18300.pt")
 
     # Evaluation
-    weight = "./checkpoints/{}/24000.pt".format(experiment)
+    weight = "./checkpoints/{}/23000.pt".format(experiment)
     print (weight)
     eval(weight)
